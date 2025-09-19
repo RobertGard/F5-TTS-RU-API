@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  f5tts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: f5tts-api:local
+    container_name: f5tts-api
+    restart: unless-stopped
+    ports:
+      - "4123:4123"
+    environment:
+      PORT: "4123"
+      DEVICE: "cpu"
+      MODEL_SIZE: "small"
+      MODEL_NAME: "hotstone228/F5-TTS-Russian"
+      HUGGINGFACE_HUB_TOKEN: "${HUGGINGFACE_HUB_TOKEN:-}"
+    networks:
+      - n8n_network
+    volumes:
+      - f5tts_hf_cache:/root/.cache/huggingface/hub  # cache models
+      - f5tts_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+volumes:
+  f5tts_hf_cache:
+  f5tts_data:
+
+networks:
+  n8n_network:
+    external: true

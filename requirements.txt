@@ -1,0 +1,10 @@
+uvicorn[standard]
+fastapi
+aiofiles
+python-multipart
+requests
+huggingface-hub
+tomli
+pydantic
+# Install f5-tts from PyPI (or git if required)
+f5-tts
