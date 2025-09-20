@@ -14,7 +14,7 @@ services:
       PORT: "4123"
       DEVICE: "cpu"
       MODEL_SIZE: "small"
-      MODEL_NAME: "hotstone228/F5-TTS-Russian"
+  MODEL_NAME: "Misha24-10/F5-TTS_RUSSIAN/F5TTS_v1_Base_v2"
       HUGGINGFACE_HUB_TOKEN: "${HUGGINGFACE_HUB_TOKEN:-}"
     networks:
       - n8n_network
@@ -24,9 +24,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 8G
         reservations:
-          memory: 2G
+          memory: 4G
 
 volumes:
   f5tts_hf_cache:

@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 
-MODEL_ENV = os.getenv("MODEL_NAME", "hotstone228/F5-TTS-Russian")
+MODEL_ENV = os.getenv("MODEL_NAME", "Misha24-10/F5-TTS_RUSSIAN/F5TTS_v1_Base_v2")
 PORT = int(os.getenv("PORT", 4123))
 DEVICE = os.getenv("DEVICE", "cpu")
 MODEL_SIZE = os.getenv("MODEL_SIZE", "small")
@@ -19,16 +19,7 @@ class TTSRequest(BaseModel):
     ref_audio: str | None = None  # путь к эталонному аудиофайлу
     ref_text: str | None = None   # текст эталонного аудио
 
-@app.on_event("startup")
-async def startup_event():
-    # ensure model is downloaded to hf cache to avoid runtime hiccups
-    # huggingface_hub will read HUGGINGFACE_HUB_TOKEN from env if set
-    try:
-        from huggingface_hub import snapshot_download
-        print("Ensuring model is cached:", MODEL_ENV)
-        snapshot_download(repo_id=MODEL_ENV, cache_dir="/root/.cache/huggingface/hub")
-    except Exception as e:
-        print("Model download/check warning:", e)
+
 
 @app.post("/v1/audio/speech")
 async def synthesize(req: TTSRequest):
