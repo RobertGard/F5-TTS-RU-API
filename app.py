@@ -44,8 +44,8 @@ async def synthesize(req: TTSRequest):
         "f5-tts_infer-cli",
         "--model", MODEL_ENV,
         "--gen_text", req.input,
-        "--outdir", out_dir,
-        "--wav_filename", os.path.basename(out_file)
+        "--output_dir", out_dir,
+        "--output_file", os.path.basename(out_file)
     ]
     if req.ref_audio:
         cmd += ["--ref_audio", req.ref_audio]
