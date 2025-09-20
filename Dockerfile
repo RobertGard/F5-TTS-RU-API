@@ -15,10 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+
 # copy files
 COPY requirements.txt /app/requirements.txt
 COPY app.py /app/app.py
 COPY entrypoint.sh /app/entrypoint.sh
+COPY f5tts_config/ /app/f5tts_config/
 
 RUN chmod +x /app/entrypoint.sh
 
@@ -30,4 +32,4 @@ VOLUME ["/root/.cache/huggingface", "/data"]
 
 EXPOSE 4123
 
-CMD ["/app/entrypoint.sh"]
+CMD ["bash", "/app/entrypoint.sh"]
