@@ -15,8 +15,9 @@ app = FastAPI(title="F5-TTS-API (wrapper)")
 
 class TTSRequest(BaseModel):
     input: str
-    voice: str | None = None
     out_format: str | None = "wav"   # wav or mp3
+    ref_audio: str | None = None  # путь к эталонному аудиофайлу
+    ref_text: str | None = None   # текст эталонного аудио
 
 @app.on_event("startup")
 async def startup_event():
@@ -34,29 +35,22 @@ async def synthesize(req: TTSRequest):
     if not req.input or req.input.strip() == "":
         raise HTTPException(status_code=400, detail="input text required")
 
-    # create temp working dir
-    td = tempfile.mkdtemp(prefix="f5tts_")
-    toml_path = os.path.join(td, "request.toml")
     out_dir = "/data/output"
     os.makedirs(out_dir, exist_ok=True)
     out_file = os.path.join(out_dir, f"out_{int(os.times()[4]*1000)}.wav")
 
-    # render TOML from template (very simple)
-    toml_template = """[model]
-name = "{model}"
-
-[output]
-outdir = "{outdir}"
-wav_filename = "{wav_name}"
-
-[generate]
-gen_text = "{gen_text}"
-"""
-    with open(toml_path, "w", encoding="utf-8") as f:
-        f.write(toml_template.format(model=MODEL_ENV, outdir=out_dir, wav_name=os.path.basename(out_file), gen_text=req.input.replace('"', '\\"')))
-
-    # Run f5-tts_infer-cli with config
-    cmd = ["f5-tts_infer-cli", "-c", toml_path]
+    # Формируем команду с флагами
+    cmd = [
+        "f5-tts_infer-cli",
+        "--model", MODEL_ENV,
+        "--gen_text", req.input,
+        "--outdir", out_dir,
+        "--wav_filename", os.path.basename(out_file)
+    ]
+    if req.ref_audio:
+        cmd += ["--ref_audio", req.ref_audio]
+    if req.ref_text:
+        cmd += ["--ref_text", req.ref_text]
     env = os.environ.copy()
     env["DEVICE"] = DEVICE
     env["MODEL_SIZE"] = MODEL_SIZE
