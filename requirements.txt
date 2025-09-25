@@ -8,3 +8,4 @@ tomli
 pydantic
 # Install f5-tts from PyPI (or git if required)
 f5-tts
+ruaccent
