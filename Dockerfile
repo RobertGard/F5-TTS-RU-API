@@ -1,4 +1,4 @@
-# Dockerfile — build lightweight CPU image for F5-TTS + small API wrapper
+# Dockerfile — build lightweight CUDA image for F5-TTS + small API wrapper
 FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -25,6 +25,10 @@ RUN chmod +x /app/entrypoint.sh
 
 # Python deps
 RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Torch + Torchaudio (фиксируем CUDA версию)
+RUN pip install --no-cache-dir torch==2.4.1+cu124 torchaudio==2.4.1+cu124 \
+    --extra-index-url https://download.pytorch.org/whl/cu124
 
 # Ensure huggingface cache dir exists (models will be downloaded here)
 VOLUME ["/root/.cache/huggingface", "/data"]

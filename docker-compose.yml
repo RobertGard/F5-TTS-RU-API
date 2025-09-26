@@ -11,7 +11,7 @@ services:
     ports:
       - "4123:4123"
     environment:
-      DEVICE: "cpu"
+      DEVICE: "cuda"
       HUGGINGFACE_HUB_TOKEN: "${HUGGINGFACE_HUB_TOKEN:-}"
     networks:
       - n8n_network

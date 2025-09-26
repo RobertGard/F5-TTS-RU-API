@@ -14,7 +14,7 @@ from ruaccent import RUAccent
 # -------------------
 # Конфигурация
 # -------------------
-DEVICE = os.getenv("DEVICE", "cpu")
+DEVICE = os.getenv("DEVICE", "cuda")
 INPUT_DIR = "/data/input"
 OUTPUT_DIR = "/data/output"
 REF_AUDIO_ENV = os.getenv("REF_AUDIO_PATH", "")
