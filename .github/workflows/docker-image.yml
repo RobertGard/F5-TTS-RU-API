@@ -28,9 +28,9 @@ jobs:
       run: |
         docker build . \
           --file Dockerfile \
-          --tag ghcr.io/${{ github.repository_owner }}/f5-tts-ru-api:cuda-support
+          --tag ghcr.io/robertgard/f5-tts-ru-api:cuda-support
 
     # Публикация Docker-образа в GHCR
     - name: Push Docker image to GHCR
       run: |
-        docker push ghcr.io/${{ github.repository_owner }}/f5-tts-ru-api:cuda-support
+        docker push ghcr.io/robertgard/f5-tts-ru-api:cuda-support
