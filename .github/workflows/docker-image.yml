@@ -1,0 +1,36 @@
+name: Build & Push F5-TTS-RU-API (cuda-support) Docker Image
+
+# Запуск workflow при пуше или PR в ветку cuda-support
+on:
+  push:
+    branches: [ "cuda-support" ]
+  pull_request:
+    branches: [ "cuda-support" ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Получаем код из репозитория
+    - uses: actions/checkout@v4
+
+    # Логинимся в GitHub Container Registry (GHCR)
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Сборка Docker-образа
+    - name: Build Docker image
+      run: |
+        docker build . \
+          --file Dockerfile \
+          --tag ghcr.io/${{ github.repository_owner }}/f5-tts-ru-api:cuda-support
+
+    # Публикация Docker-образа в GHCR
+    - name: Push Docker image to GHCR
+      run: |
+        docker push ghcr.io/${{ github.repository_owner }}/f5-tts-ru-api:cuda-support
