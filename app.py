@@ -1,28 +1,58 @@
-import requests
+import os
 import re
 import time
-import os
-import subprocess
+import uuid
 import glob
+import shutil
+import subprocess
+import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from ruaccent import RUAccent
 
-
+# -------------------
+# Конфигурация
+# -------------------
 DEVICE = os.getenv("DEVICE", "cpu")
 INPUT_DIR = "/data/input"
 OUTPUT_DIR = "/data/output"
+REF_AUDIO_ENV = os.getenv("REF_AUDIO_PATH", "")
+REF_TEXT_ENV = os.getenv("REF_TEXT_PATH", "")
 
+# Проверка наличия бинарников
+if shutil.which("f5-tts_infer-cli") is None:
+    raise RuntimeError("f5-tts_infer-cli not found in PATH")
+if shutil.which("ffmpeg") is None:
+    raise RuntimeError("ffmpeg not found in PATH")
+
+# -------------------
+# Инициализация FastAPI
+# -------------------
 app = FastAPI(title="F5-TTS-API (wrapper)")
 
+# -------------------
+# Модель запроса
+# -------------------
 class TTSRequest(BaseModel):
-    input: str
-    out_format: str | None = "wav"   # wav or mp3
+    input: str   # Текст, который модель должна синтезировать в речь
+    out_format: str | None = "wav"   # wav или mp3
     ref_audio: str | None = None  # путь к эталонному аудиофайлу
     ref_text: str | None = None   # текст эталонного аудио
+    vocoder_name: str | None = None  # название вокодера (например, "hifigan")
+    remove_silence: bool | None = None  # удалять ли тишину в начале/конце
+    target_rms: float | None = None  # целевой RMS для нормализации громкости
+    speed: float | None = None  # скорость воспроизведения (1.0 = стандарт)
+    cfg_strength: float | None = None  # сила CFG (контроль генерации)
+    nfe_step: int | None = None  # количество шагов NFE (качество/скорость)
+    fix_duration: bool | None = None  # фиксировать длительность (True/False)
+    cross_fade_duration: float | None = None  # длительность кроссфейда между чанками
+    save_chunk: bool | None = None  # сохранять ли промежуточные чанки
 
 
+# -------------------
+# Основной эндпоинт
+# -------------------
 @app.post("/v1/audio/speech")
 async def synthesize(req: TTSRequest):
     """
@@ -42,30 +72,30 @@ async def synthesize(req: TTSRequest):
 
     os.makedirs(INPUT_DIR, exist_ok=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out_file = os.path.join(OUTPUT_DIR, f"out_{int(os.times()[4]*1000)}.wav")
+    out_file = generate_output_filename()
 
     # Обработка текста с помощью RUAccent
     gen_text = process_with_ruaccent(req.input)
-
     # Получаем пути к ckpt и vocab
     ckpt_path, vocab_path = get_model_paths()
+    ref_audio_path = get_ref_audio_path(req.ref_audio)
+    ref_text_value = get_ref_text_value(req.ref_text)
 
-    # Формируем команду с флагами
-    cmd = [
-        "f5-tts_infer-cli",
-        "--ckpt_file", ckpt_path,
-        "--vocab_file", vocab_path,
-        "--gen_text", gen_text,
-        "--output_dir", OUTPUT_DIR,
-        "--output_file", os.path.basename(out_file),
-        "--device", DEVICE
-    ]
-    if req.ref_audio:
-        ref_audio_path = download_ref_audio(req.ref_audio)
-        cmd += ["--ref_audio", ref_audio_path]
-    if req.ref_text:
-        ref_text_value = process_ref_text(req.ref_text)
-        cmd += ["--ref_text", ref_text_value]
+    # Формируем команду для f5-tts_infer-cli
+    cmd = build_cli_command(
+        ckpt_path, vocab_path, gen_text, out_file, 
+        ref_audio_path=ref_audio_path, 
+        ref_text_value=ref_text_value,
+        vocoder_name=req.vocoder_name,
+        remove_silence=req.remove_silence,
+        target_rms=req.target_rms,
+        speed=req.speed,
+        cfg_strength=req.cfg_strength,
+        nfe_step=req.nfe_step,
+        fix_duration=req.fix_duration,
+        cross_fade_duration=req.cross_fade_duration,
+        save_chunk=req.save_chunk
+    )
 
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
@@ -99,7 +129,7 @@ def save_and_return_final_audio_file(out_file: str, out_format: str | None) -> F
         files = [f for f in os.listdir(OUTPUT_DIR) if f.endswith(".wav")]
         if not files:
             raise HTTPException(status_code=500, detail="No output produced")
-        out_file = os.path.join(OUTPUT_DIR, files[-1])
+        out_file = os.path.join(OUTPUT_DIR, sorted(files)[-1])
 
     # Optionally convert to mp3 if requested (ffmpeg must be present)
     if out_format and out_format.lower() == "mp3":
@@ -122,7 +152,7 @@ def get_model_paths() -> tuple[str, str]:
         HTTPException: Если не найдены snapshot, ckpt или vocab.txt
     """
     snapshot_glob = "/root/.cache/huggingface/hub/models--Misha24-10--F5-TTS_RUSSIAN/snapshots/*"
-    snapshot_dirs = glob.glob(snapshot_glob)
+    snapshot_dirs = sorted(glob.glob(snapshot_glob), key=os.path.getmtime, reverse=True)
     if not snapshot_dirs:
         raise HTTPException(status_code=500, detail="Model snapshot not found in huggingface cache")
     snapshot_dir = snapshot_dirs[0]
@@ -202,10 +232,9 @@ def process_ref_text(ref_text: str) -> str:
     else:
         text = ref_text
     # Поверхностная фильтрация: убираем html-теги и опасные символы
-    text = re.sub(r'<[^>]+>', '', text)  # убираем html-теги
-    text = text.replace('\x00', '')  # убираем null-байты
-    text = text.strip()
-    return text
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.replace("\x00", "")
+    return text.strip()
 
 
 def process_with_ruaccent(text: str) -> str:
@@ -225,3 +254,125 @@ def process_with_ruaccent(text: str) -> str:
         tiny_mode=False
     )
     return accentizer.process_all(text) + ' '
+
+
+def get_ref_audio_path(req_ref_audio: str | None) -> str | None:
+    """
+    Возвращает путь к референс-аудио: сначала из env, затем скачивает или возвращает None.
+
+    Args:
+        req_ref_audio (str | None): Путь или URL к аудиофайлу из запроса.
+
+    Returns:
+        str | None: Абсолютный путь к аудиофайлу или None, если не задан.
+    """
+    if REF_AUDIO_ENV and os.path.isfile(REF_AUDIO_ENV):
+        return REF_AUDIO_ENV
+    if req_ref_audio:
+        return download_ref_audio(req_ref_audio)
+    return None
+
+
+def get_ref_text_value(req_ref_text: str | None) -> str | None:
+    """
+    Возвращает текст для --ref_text: сначала из env, затем скачивает/фильтрует или возвращает None.
+
+    Args:
+        req_ref_text (str | None): Текст, путь или URL из запроса.
+
+    Returns:
+        str | None: Готовый текст для --ref_text или None, если не задан.
+    """
+    if REF_TEXT_ENV and os.path.isfile(REF_TEXT_ENV):
+        try:
+            with open(REF_TEXT_ENV, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read ref_text from env path: {e}")
+    if req_ref_text:
+        return process_ref_text(req_ref_text)
+    return None
+
+
+def generate_output_filename() -> str:
+    """
+    Генерирует уникальное имя выходного файла в OUTPUT_DIR.
+
+    Returns:
+        str: Абсолютный путь к новому wav-файлу в OUTPUT_DIR.
+    """
+    return os.path.join(OUTPUT_DIR, f"out_{uuid.uuid4().hex}.wav")
+
+
+def build_cli_command(
+    ckpt_path: str,
+    vocab_path: str,
+    gen_text: str,
+    out_file: str,
+    ref_audio_path: str | None,
+    ref_text_value: str | None,
+    vocoder_name: str | None = None,
+    remove_silence: bool | None = None,
+    target_rms: float | None = None,
+    speed: float | None = None,
+    cfg_strength: float | None = None,
+    nfe_step: int | None = None,
+    fix_duration: bool | None = None,
+    cross_fade_duration: float | None = None,
+    save_chunk: bool | None = None
+) -> list[str]:
+    """
+    Формирует команду для f5-tts_infer-cli с учётом всех параметров, включая дополнительные опции.
+
+    Args:
+        ckpt_path (str): Путь к файлу весов модели.
+        vocab_path (str): Путь к словарю.
+        gen_text (str): Текст для синтеза.
+        out_file (str): Путь к выходному wav-файлу.
+        ref_audio_path (str | None): Путь к референс-аудио (или None).
+        ref_text_value (str | None): Текст для --ref_text (или None).
+        vocoder_name (str | None): название вокодера (например, "hifigan")
+        remove_silence (bool | None): удалять ли тишину в начале/конце
+        target_rms (float | None): целевой RMS для нормализации громкости
+        speed (float | None): скорость воспроизведения (1.0 = стандарт)
+        cfg_strength (float | None): сила CFG (контроль генерации)
+        nfe_step (int | None): количество шагов NFE (качество/скорость)
+        fix_duration (bool | None): фиксировать длительность (True/False)
+        cross_fade_duration (float | None): длительность кроссфейда между чанками
+        save_chunk (bool | None): сохранять ли промежуточные чанки
+
+    Returns:
+        list[str]: Сформированная команда для subprocess.run
+    """
+    cmd = [
+        "f5-tts_infer-cli",
+        "--ckpt_file", ckpt_path,
+        "--vocab_file", vocab_path,
+        "--gen_text", gen_text,
+        "--output_dir", OUTPUT_DIR,
+        "--output_file", os.path.basename(out_file),
+        "--device", DEVICE
+    ]
+    if ref_audio_path:
+        cmd += ["--ref_audio", ref_audio_path]
+    if ref_text_value:
+        cmd += ["--ref_text", ref_text_value]
+    if vocoder_name:
+        cmd += ["--vocoder_name", vocoder_name]
+    if remove_silence is not None:
+        cmd += ["--remove_silence", str(remove_silence).lower()]
+    if target_rms is not None:
+        cmd += ["--target_rms", str(target_rms)]
+    if speed is not None:
+        cmd += ["--speed", str(speed)]
+    if cfg_strength is not None:
+        cmd += ["--cfg_strength", str(cfg_strength)]
+    if nfe_step is not None:
+        cmd += ["--nfe_step", str(nfe_step)]
+    if fix_duration is not None:
+        cmd += ["--fix_duration", str(fix_duration).lower()]
+    if cross_fade_duration is not None:
+        cmd += ["--cross_fade_duration", str(cross_fade_duration)]
+    if save_chunk is not None:
+        cmd += ["--save_chunk", str(save_chunk).lower()]
+    return cmd
